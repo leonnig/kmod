@@ -4,6 +4,10 @@ obj-m += hello-5.o
 obj-m += chardev.o
 obj-m += procfs.o
 obj-m += seq.o
+obj-m += my_sysfs.o
+obj-m += sleep.o
+obj-m += completions.o
+obj-m += myfifo.o
 
 PWD := $(shell pwd)
 
