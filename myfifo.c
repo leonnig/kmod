@@ -94,16 +94,16 @@ static ssize_t my_write(struct file *file, const char __user *user_buffer, size_
 
     mutex_lock(&mtx);
 
-    memset(kernel_buffer, 0, MAX_SIZE);
+    //memset(kernel_buffer, 0, MAX_SIZE);
 
-    if(copy_from_user(kernel_buffer, user_buffer, bytes_to_write)) {
+    if(copy_from_user(kernel_buffer + data_size, user_buffer, bytes_to_write)) {
         mutex_unlock(&mtx);
         return -EFAULT;
     }
 
-    data_size = bytes_to_write;
+    data_size += bytes_to_write;
 
-    printk(KERN_INFO "MyFifo: Received %d bytes from user: %s\n", bytes_to_write, kernel_buffer);
+    printk(KERN_INFO "MyFifo: Received %d bytes from user:  %s\n", bytes_to_write, kernel_buffer);
     wake_up_interruptible(&wqh);
     mutex_unlock(&mtx);
     return bytes_to_write;
