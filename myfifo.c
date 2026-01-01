@@ -51,7 +51,7 @@ static ssize_t my_read(struct file *file, char __user *user_buffer, size_t len, 
 
     mutex_lock(&mtx);
 
-    while (*offset >= data_size) {
+    while (data_size == 0) {
         mutex_unlock(&mtx);
         ret = wait_event_interruptible(wqh, data_size > *offset);
         mutex_lock(&mtx);
@@ -69,13 +69,16 @@ static ssize_t my_read(struct file *file, char __user *user_buffer, size_t len, 
         bytes_to_read = len;
     }
 
-    if (copy_to_user(user_buffer, kernel_buffer + *offset, bytes_to_read)) {
+    if (copy_to_user(user_buffer, kernel_buffer, bytes_to_read)) {
         mutex_unlock(&mtx);
         return -EFAULT;
     }
-    
-    *offset += bytes_to_read;
 
+    if (bytes_to_read < data_size) {
+        memmove(kernel_buffer, kernel_buffer + bytes_to_read, data_size - bytes_to_read);
+    }
+
+    data_size -= bytes_to_read;
     mutex_unlock(&mtx);
 
     printk(KERN_INFO "MyFifo: Sent %d bytes to user\n", bytes_to_read);
@@ -84,17 +87,18 @@ static ssize_t my_read(struct file *file, char __user *user_buffer, size_t len, 
 
 static ssize_t my_write(struct file *file, const char __user *user_buffer, size_t len, loff_t *offset) {
     int bytes_to_write;
-
-    if (len > MAX_SIZE) {
-        printk(KERN_INFO "MyFifo: Data too large!\n");
-        bytes_to_write = MAX_SIZE;
-    } else {
-        bytes_to_write = len;
-    }
+    int space_available;
 
     mutex_lock(&mtx);
 
-    //memset(kernel_buffer, 0, MAX_SIZE);
+    space_available = MAX_SIZE - data_size;
+
+    if (len > space_available) {
+        printk(KERN_INFO "MyFifo: Data too large!\n");
+        bytes_to_write = space_available;
+    } else {
+        bytes_to_write = len;
+    }
 
     if(copy_from_user(kernel_buffer + data_size, user_buffer, bytes_to_write)) {
         mutex_unlock(&mtx);
