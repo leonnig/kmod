@@ -20,6 +20,8 @@ MODULE_DESCRIPTION("A simple FIFO Character Driver");
 // Global variables
 static char kernel_buffer[MAX_SIZE]; 
 static int data_size = 0; //Numbers of data in buffer right now
+static int head = 0;
+static int tail = 0;
 
 static dev_t dev_num; //device number (major +minor)
 static struct cdev my_cdev; 
@@ -51,9 +53,9 @@ static ssize_t my_read(struct file *file, char __user *user_buffer, size_t len, 
 
     mutex_lock(&mtx);
 
-    while (data_size == 0) {
+    while (data_size == 0 && (head == tail)) {
         mutex_unlock(&mtx);
-        ret = wait_event_interruptible(wqh, data_size > *offset);
+        ret = wait_event_interruptible(wqh, data_size > 0);
         mutex_lock(&mtx);
         
         if (ret != 0) {
@@ -62,23 +64,25 @@ static ssize_t my_read(struct file *file, char __user *user_buffer, size_t len, 
         }
     }
 
-    remaining_bytes = data_size - *offset;
+    if (tail >= head) {
+        remaining_bytes = tail - head;
+    } else {remaining_bytes = (MAX_SIZE - head) + tail;}
+
     if (len > remaining_bytes) {
         bytes_to_read = remaining_bytes;
+    } else {bytes_to_read = len;}
+
+    if ((head + bytes_to_read - 1) > (MAX_SIZE - 1)) {
+        copy_to_user(user_buffer, kernel_buffer + head, MAX_SIZE - head);
+        copy_to_user(user_buffer + MAX_SIZE - head, kernel_buffer, (head + bytes_to_read) % MAX_SIZE);
+        head = (head + bytes_to_read) % MAX_SIZE;
     } else {
-        bytes_to_read = len;
-    }
-
-    if (copy_to_user(user_buffer, kernel_buffer, bytes_to_read)) {
-        mutex_unlock(&mtx);
-        return -EFAULT;
-    }
-
-    if (bytes_to_read < data_size) {
-        memmove(kernel_buffer, kernel_buffer + bytes_to_read, data_size - bytes_to_read);
+        copy_to_user(user_buffer, kernel_buffer + head, bytes_to_read);
+        head = (head + bytes_to_read) % MAX_SIZE ;
     }
 
     data_size -= bytes_to_read;
+
     mutex_unlock(&mtx);
 
     printk(KERN_INFO "MyFifo: Sent %d bytes to user\n", bytes_to_read);
@@ -100,16 +104,21 @@ static ssize_t my_write(struct file *file, const char __user *user_buffer, size_
         bytes_to_write = len;
     }
 
-    if(copy_from_user(kernel_buffer + data_size, user_buffer, bytes_to_write)) {
-        mutex_unlock(&mtx);
-        return -EFAULT;
+    if ((tail + bytes_to_write - 1) > (MAX_SIZE - 1)) {
+        copy_from_user(kernel_buffer + tail, user_buffer, MAX_SIZE - tail);
+        copy_from_user(kernel_buffer, user_buffer + MAX_SIZE - tail, (tail + bytes_to_write) % MAX_SIZE);
+        tail = (tail + bytes_to_write) % MAX_SIZE;
+    }  else {
+        copy_from_user(kernel_buffer + tail, user_buffer, bytes_to_write);
+        tail = (tail + bytes_to_write) % MAX_SIZE;
     }
 
     data_size += bytes_to_write;
 
+    mutex_unlock(&mtx);
+
     printk(KERN_INFO "MyFifo: Received %d bytes from user:  %s\n", bytes_to_write, kernel_buffer);
     wake_up_interruptible(&wqh);
-    mutex_unlock(&mtx);
     return bytes_to_write;
 }
 
