@@ -129,6 +129,8 @@ static long my_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
             mutex_lock(&mtx);
             data_size = 0;
             memset(kernel_buffer, 0, MAX_SIZE);
+            head = 0;
+            tail = 0;
             mutex_unlock(&mtx);
             return 0;
         
