@@ -53,7 +53,7 @@ static ssize_t my_read(struct file *file, char __user *user_buffer, size_t len, 
 
     mutex_lock(&mtx);
 
-    while (data_size == 0 && (head == tail)) {
+    while (data_size == 0) {
         mutex_unlock(&mtx);
         ret = wait_event_interruptible(wqh, data_size > 0);
         mutex_lock(&mtx);
@@ -64,20 +64,27 @@ static ssize_t my_read(struct file *file, char __user *user_buffer, size_t len, 
         }
     }
 
-    if (tail >= head) {
-        remaining_bytes = tail - head;
-    } else {remaining_bytes = (MAX_SIZE - head) + tail;}
+    remaining_bytes = data_size;
 
     if (len > remaining_bytes) {
         bytes_to_read = remaining_bytes;
     } else {bytes_to_read = len;}
 
     if ((head + bytes_to_read - 1) > (MAX_SIZE - 1)) {
-        copy_to_user(user_buffer, kernel_buffer + head, MAX_SIZE - head);
-        copy_to_user(user_buffer + MAX_SIZE - head, kernel_buffer, (head + bytes_to_read) % MAX_SIZE);
+        if(copy_to_user(user_buffer, kernel_buffer + head, MAX_SIZE - head)){
+            mutex_unlock(&mtx);
+            return -EFAULT;
+        }
+        if(copy_to_user(user_buffer + MAX_SIZE - head, kernel_buffer, (head + bytes_to_read) % MAX_SIZE)){
+            mutex_unlock(&mtx);
+            return -EFAULT;
+        }
         head = (head + bytes_to_read) % MAX_SIZE;
     } else {
-        copy_to_user(user_buffer, kernel_buffer + head, bytes_to_read);
+        if(copy_to_user(user_buffer, kernel_buffer + head, bytes_to_read)){
+            mutex_unlock(&mtx);
+            return -EFAULT;
+        }
         head = (head + bytes_to_read) % MAX_SIZE ;
     }
 
@@ -105,11 +112,20 @@ static ssize_t my_write(struct file *file, const char __user *user_buffer, size_
     }
 
     if ((tail + bytes_to_write - 1) > (MAX_SIZE - 1)) {
-        copy_from_user(kernel_buffer + tail, user_buffer, MAX_SIZE - tail);
-        copy_from_user(kernel_buffer, user_buffer + MAX_SIZE - tail, (tail + bytes_to_write) % MAX_SIZE);
+        if(copy_from_user(kernel_buffer + tail, user_buffer, MAX_SIZE - tail)){
+            mutex_unlock(&mtx);
+            return -EFAULT;
+        }
+        if(copy_from_user(kernel_buffer, user_buffer + MAX_SIZE - tail, (tail + bytes_to_write) % MAX_SIZE)){
+            mutex_unlock(&mtx);
+            return -EFAULT;
+        }
         tail = (tail + bytes_to_write) % MAX_SIZE;
     }  else {
-        copy_from_user(kernel_buffer + tail, user_buffer, bytes_to_write);
+        if(copy_from_user(kernel_buffer + tail, user_buffer, bytes_to_write)){
+            mutex_unlock(&mtx);
+            return -EFAULT;
+        }
         tail = (tail + bytes_to_write) % MAX_SIZE;
     }
 
