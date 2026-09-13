@@ -8,10 +8,10 @@
 #include <linux/mutex.h>
 #include <linux/ioctl.h>
 #include <linux/wait.h>
+#include "myfifo_ioctl.h"
 
 #define DEVICE_NAME "myfifo"
 #define MAX_SIZE 1024
-#define MYFIFO_RESET _IO('M', 1)
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Cool");
@@ -149,6 +149,15 @@ static long my_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
             tail = 0;
             mutex_unlock(&mtx);
             return 0;
+        case MYFIFO_GET_COUNT:{
+            int count; 
+            mutex_lock(&mtx);
+            count = data_size;
+            mutex_unlock(&mtx);
+            if(copy_to_user((int __user*) arg, &count, sizeof(count)))
+                return -EFAULT;
+            return 0;
+        }
         
         default:
             return -ENOTTY;
