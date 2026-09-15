@@ -35,13 +35,13 @@ DECLARE_WAIT_QUEUE_HEAD(wqh); // Inicialize a wait queue head
 
 static int my_open(struct inode *inode, struct file *file)
 {
-    printk(KERN_INFO "Myinfo: Device open\n");
+    printk(KERN_INFO "Myfifo: Device open\n");
     return 0;
 }
 
 static int my_release(struct inode *inode, struct file *file)
 {
-    printk(KERN_INFO "Myinfo: Device closed\n");
+    printk(KERN_INFO "Myfifo: Device closed\n");
     return 0;
 }
 
@@ -133,7 +133,7 @@ static ssize_t my_write(struct file *file, const char __user *user_buffer, size_
 
     mutex_unlock(&mtx);
 
-    printk(KERN_INFO "MyFifo: Received %d bytes from user:  %s\n", bytes_to_write, kernel_buffer);
+    printk(KERN_INFO "MyFifo: Received %d bytes from user\n", bytes_to_write);
     wake_up_interruptible(&wqh);
     return bytes_to_write;
 }
