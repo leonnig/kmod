@@ -29,7 +29,8 @@ static struct class *my_class;
 static struct device *my_device;
 
 DEFINE_MUTEX(mtx); // Initialize a mutex lock
-DECLARE_WAIT_QUEUE_HEAD(wqh); // Inicialize a wait queue head
+DECLARE_WAIT_QUEUE_HEAD(wqh_r); // Inicialize a wait queue head(Reader)
+DECLARE_WAIT_QUEUE_HEAD(wqh_w); // Inicialize a wait queue head(Writer)
 
 //--- File Operations ---
 
@@ -51,11 +52,14 @@ static ssize_t my_read(struct file *file, char __user *user_buffer, size_t len, 
     int remaining_bytes;
     int ret;
 
+    if (len == 0)
+        return 0;
+
     mutex_lock(&mtx);
 
     while (data_size == 0) {
         mutex_unlock(&mtx);
-        ret = wait_event_interruptible(wqh, data_size > 0);
+        ret = wait_event_interruptible(wqh_r, data_size > 0);
         mutex_lock(&mtx);
         
         if (ret != 0) {
@@ -93,20 +97,36 @@ static ssize_t my_read(struct file *file, char __user *user_buffer, size_t len, 
     mutex_unlock(&mtx);
 
     printk(KERN_INFO "MyFifo: Sent %d bytes to user\n", bytes_to_read);
+    wake_up_interruptible(&wqh_w);
     return bytes_to_read;
 }
 
 static ssize_t my_write(struct file *file, const char __user *user_buffer, size_t len, loff_t *offset) {
     int bytes_to_write;
     int space_available;
+    int ret;
+
+    if (len == 0)
+        return 0;
 
     mutex_lock(&mtx);
 
+    while (data_size == MAX_SIZE) {
+        mutex_unlock(&mtx);
+        ret = wait_event_interruptible(wqh_w, data_size < MAX_SIZE);
+        mutex_lock(&mtx);
+
+        if (ret != 0){
+            mutex_unlock(&mtx);
+            return -ERESTARTSYS;
+        }
+    }
+        
     space_available = MAX_SIZE - data_size;
 
     if (len > space_available) {
-        printk(KERN_INFO "MyFifo: Data too large!\n");
         bytes_to_write = space_available;
+        printk(KERN_INFO "MyFifo: partial write, %d of %zu bytes\n", bytes_to_write, len);
     } else {
         bytes_to_write = len;
     }
@@ -134,7 +154,7 @@ static ssize_t my_write(struct file *file, const char __user *user_buffer, size_
     mutex_unlock(&mtx);
 
     printk(KERN_INFO "MyFifo: Received %d bytes from user\n", bytes_to_write);
-    wake_up_interruptible(&wqh);
+    wake_up_interruptible(&wqh_r);
     return bytes_to_write;
 }
 
@@ -148,6 +168,7 @@ static long my_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
             head = 0;
             tail = 0;
             mutex_unlock(&mtx);
+            wake_up_interruptible(&wqh_w);
             return 0;
         case MYFIFO_GET_COUNT:{
             int count; 
