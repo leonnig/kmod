@@ -8,6 +8,7 @@
 #include <linux/mutex.h>
 #include <linux/ioctl.h>
 #include <linux/wait.h>
+#include <linux/poll.h>
 #include "myfifo_ioctl.h"
 
 #define DEVICE_NAME "myfifo"
@@ -58,6 +59,10 @@ static ssize_t my_read(struct file *file, char __user *user_buffer, size_t len, 
     mutex_lock(&mtx);
 
     while (data_size == 0) {
+        if (file->f_flags & O_NONBLOCK) {
+            mutex_unlock(&mtx);
+            return -EAGAIN; //try again
+        }
         mutex_unlock(&mtx);
         ret = wait_event_interruptible(wqh_r, data_size > 0);
         mutex_lock(&mtx);
@@ -112,6 +117,10 @@ static ssize_t my_write(struct file *file, const char __user *user_buffer, size_
     mutex_lock(&mtx);
 
     while (data_size == MAX_SIZE) {
+        if (file->f_flags & O_NONBLOCK) {
+            mutex_unlock(&mtx);
+            return -EAGAIN; //try again
+        }
         mutex_unlock(&mtx);
         ret = wait_event_interruptible(wqh_w, data_size < MAX_SIZE);
         mutex_lock(&mtx);
@@ -185,6 +194,23 @@ static long my_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     }
 }
 
+static __poll_t my_poll(struct file *file, poll_table *wait) {
+
+    __poll_t mask = 0;
+    poll_wait(file, &wqh_r, wait);
+    poll_wait(file, &wqh_w, wait);
+
+    mutex_lock(&mtx);
+    if (data_size != MAX_SIZE)
+        mask |= EPOLLOUT | EPOLLWRNORM;
+    if (data_size != 0)
+        mask |= EPOLLIN | EPOLLRDNORM;
+    mutex_unlock(&mtx);
+
+    return mask;
+
+}
+
 static struct file_operations fops = {
     .owner = THIS_MODULE,
     .open = my_open,
@@ -192,6 +218,7 @@ static struct file_operations fops = {
     .read = my_read,
     .write = my_write,
     .unlocked_ioctl = my_ioctl,
+    .poll = my_poll,
 };
 
 static int __init my_init(void) {
